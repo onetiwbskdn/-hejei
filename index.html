@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Crypto Wallet Finder</title>
+    <!-- Подключаем BIP39 и BitcoinJS через CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/bip39@2.6.0/browser.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bitcoinjs-lib@7.1.0/dist/bitcoin.min.js"></script>
+</head>
+<body>
+    <!-- Интерфейс -->
+    <h1>Крипто Кошелек Поисковик v2.0</h1>
+    
+    <div class="controls">
+        <label for="wordCount">Слов (12-24):</label>
+        <input type="number" id="wordCount" min="12" max="24" step="3" value="12">
+        <button onclick="startProcess()">Начать поиск (START)</button>
+    </div>
+
+    <pre id="output"></pre>
+
+<script>
+// Полный список BIP39 слов
+const bip39 = require('bip39');
+const wordsList = bip39.wordlists.english;
+
+async function generateMnemonic(wordCount) {
+    return bip39.generateMnemonic({ strength: wordCount*11 }); // 11 бит на слово
+}
+
+async function getAddressFromMnemonic(mnemonic) {
+    const seed = await bip39.mnemonicToSeed(mnemonic);
+    const node = bitcoin.HDNode.fromSeed(seed)
+        .deriveHardened(44)
+        .deriveHardened(60)
+        .deriveHardened(0)
+        .derive(0)
+        .derive(0);
+    
+    return node.getAddress();
+}
+
+async function checkActivity(address) {
+    try {
+        const response = await fetch(`https://api.etherscan.io/api?module=account&action=balancem&address=${address}`);
+        const data = await response.json();
+        
+        // Проверяем дату последней транзакции
+        return new Date().getTime() - new Date(data.result.lastTransaction).getTime() > 30*24*60*60*1000;
+    } catch(e) {
+        return false; // Если API недоступно считаем активным
+    }
+}
+
+let isRunning = false;
+
+async function startProcess() {
+    if(isRunning) return;
+    
+    const output = document.getElementById('output');
+    const wordCount = parseInt(document.getElementById('wordCount').value);
+    
+    isRunning = true;
+    
+    while(true) {
+        try {
+            const mnemonic = await generateMnemonic(wordCount);
+            const address = await getAddressFromMnemonic(mnemonic);
+            
+            if (await checkActivity(address)) {
+                output.textContent += `SLOW ${address}\n${mnemonic}\n\n`;
+            }
+        } catch(e) {
+            output.textContent += `Ошибка: ${e.message}\n`;
+        }
+        
+        // Задержка для предотвращения перегрузки
+        await new Promise(r => setTimeout(r, 100));
+    }
+}
+</script>
+</body>
+</html>
